@@ -30,7 +30,7 @@ Everything reads **`config.json`** — set it once, no CLI flags needed.
 ```bash
 git clone https://github.com/YanIanZ/sourby-st.git
 cd sourby-st
-bash install.sh        # installs Node + Java if missing, runs npm install
+bash install.sh        # installs Node + Java, npm install, seeds config.json from example
 nano config.json       # set jarUrl (or drop your server.jar here), rconPassword, web.token
 bash deploy.sh         # build the test server
 node monitor/server.js # dashboard on http://<vps-ip>:8080

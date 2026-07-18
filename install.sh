@@ -46,6 +46,9 @@ have java && java -version 2>&1 | head -1 || echo "java: MISSING (needed only to
 echo "== npm install =="
 npm install --no-audit --no-fund
 
+# per-box config (holds secrets) is gitignored — seed it from the example on first run
+[ -f config.json ] || { cp config.example.json config.json; echo "created config.json from example — edit it before deploy"; }
+
 echo
 echo "Done. Next:"
 echo "  1) edit config.json  (jarUrl or drop server.jar here, rconPassword, web.token)"
