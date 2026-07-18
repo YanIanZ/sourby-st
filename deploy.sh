@@ -36,8 +36,10 @@ fi
 
 # --- eula + server.properties ---
 echo "eula=true" > "$SDIR/eula.txt"
+BIND=$(cfg "c.server.bindHost")   # empty = bind all (needed when the swarm runs on another box)
 cat > "$SDIR/server.properties" <<EOF
 server-port=$PORT
+server-ip=$BIND
 online-mode=false
 enable-rcon=true
 rcon.port=$RCON_PORT
