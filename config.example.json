@@ -9,9 +9,10 @@
     "dir": "testserver",
     "heapGb": 8,
     "version": "1.21.4",
-    "viewDistance": 8,
+    "viewDistance": 10,
     "maxPlayers": 1000,
-    "installVia": true
+    "installVia": true,
+    "difficulty": "normal"
   },
   "bots": {
     "count": 1000,

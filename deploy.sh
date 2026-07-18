@@ -36,7 +36,8 @@ fi
 
 # --- eula + server.properties ---
 echo "eula=true" > "$SDIR/eula.txt"
-BIND=$(cfg "c.server.bindHost")   # empty = bind all (needed when the swarm runs on another box)
+BIND=$(cfg "c.server.bindHost")           # empty = bind all (needed when the swarm runs on another box)
+DIFF=$(cfg "c.server.difficulty"); DIFF=${DIFF:-normal}   # normal by default; survives redeploys
 cat > "$SDIR/server.properties" <<EOF
 server-port=$PORT
 server-ip=$BIND
@@ -48,6 +49,7 @@ broadcast-rcon-to-ops=false
 level-name=stressworld
 view-distance=$VD
 simulation-distance=$VD
+difficulty=$DIFF
 spawn-protection=0
 max-players=$MAXP
 motd=sourby-st test server
