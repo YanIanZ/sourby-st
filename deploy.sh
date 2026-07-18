@@ -38,6 +38,9 @@ fi
 echo "eula=true" > "$SDIR/eula.txt"
 BIND=$(cfg "c.server.bindHost")           # empty = bind all (needed when the swarm runs on another box)
 DIFF=$(cfg "c.server.difficulty"); DIFF=${DIFF:-normal}   # normal by default; survives redeploys
+# gamemode: spectator lets fast/flying bots move freely without tripping the "moved too quickly"
+# anti-cheat (which kicks them in survival). force-gamemode applies it to every join.
+GM=$(cfg "c.server.gamemode"); GM=${GM:-spectator}
 cat > "$SDIR/server.properties" <<EOF
 server-port=$PORT
 server-ip=$BIND
@@ -50,6 +53,8 @@ level-name=stressworld
 view-distance=$VD
 simulation-distance=$VD
 difficulty=$DIFF
+gamemode=$GM
+force-gamemode=true
 spawn-protection=0
 max-players=$MAXP
 motd=sourby-st test server

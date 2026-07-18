@@ -12,7 +12,8 @@
     "viewDistance": 10,
     "maxPlayers": 1000,
     "installVia": true,
-    "difficulty": "normal"
+    "difficulty": "normal",
+    "gamemode": "spectator"
   },
   "bots": {
     "count": 1000,
