@@ -190,7 +190,7 @@ async function rcon(cmd){
 }
 function addLog(l){ const el=$('log'); el.textContent+=l+'\n'; el.scrollTop=el.scrollHeight; }
 async function pollLog(){ try{ const r=await fetch('/api/log'); const a=await r.json(); $('log').textContent=a.map(x=>x.line).join('\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){} }
-setInterval(pollLog,3000); pollLog();
+setInterval(pollLog,1500); pollLog();
 function connect(){
   const ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host);
   ws.onopen=()=>$('ws').classList.add('on');

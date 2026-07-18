@@ -182,7 +182,7 @@ async function poll() {
   tailServerLog();
   broadcast();
 }
-setInterval(poll, 2000);
+setInterval(poll, 1000);
 
 // ---- express + ws ----
 const app = express();
