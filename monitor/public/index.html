@@ -65,24 +65,43 @@
   <div class="panel">
     <h3>Server</h3>
     <div class="row">
-      <button class="go" onclick="post('/api/server/start')">▶ Start server</button>
-      <button class="stop" onclick="post('/api/server/stop')">■ Stop server</button>
+      <button class="go" onclick="post('/api/server/start')">▶ Start</button>
+      <button class="stop" onclick="post('/api/server/stop')">■ Stop</button>
+      <button onclick="post('/api/server/restart')">↻ Restart</button>
     </div>
   </div>
 
   <div class="panel">
     <h3>Bot swarm</h3>
     <div class="row">
-      <button class="sm" onclick="setCount(50)">50</button>
       <button class="sm" onclick="setCount(100)">100</button>
-      <button class="sm" onclick="setCount(200)">200</button>
       <button class="sm" onclick="setCount(300)">300</button>
-      <input id="count" type="number" value="300" />
-      <button class="go" onclick="post('/api/test/start',{count:+document.getElementById('count').value})">▶ Spawn bots</button>
-      <button class="stop" onclick="post('/api/test/stop')">■ Stop bots</button>
+      <button class="sm" onclick="setCount(500)">500</button>
+      <button class="sm" onclick="setCount(1000)">1000</button>
+      <input id="count" type="number" value="1000" />
+      <label class="muted">stagger<input id="stagger" type="number" value="120" style="width:70px" />ms</label>
+      <button class="go" onclick="spawnBots()">▶ Spawn</button>
+      <button class="stop" onclick="post('/api/test/stop')">■ Stop</button>
       <span class="sep"></span>
       <span class="muted" id="botsLive">idle</span>
     </div>
+    <div class="muted" style="margin-top:6px">auto-sharded ~150 bots/process (up to 16) to get past one Node event loop.</div>
+  </div>
+
+  <div class="panel">
+    <h3>RCON console — full control</h3>
+    <div class="row">
+      <button class="sm" onclick="rcon('tps')">tps</button>
+      <button class="sm" onclick="rcon('list')">list</button>
+      <button class="sm" onclick="rcon('spark health')">spark health</button>
+      <button class="sm" onclick="rcon('save-all')">save-all</button>
+      <button class="sm" onclick="rcon('perf')">perf</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="cmd" placeholder="any server command…" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')rcon()" />
+      <button class="go" onclick="rcon()">Send</button>
+    </div>
+    <pre class="log" id="rconOut" style="height:150px;margin-top:8px">—</pre>
   </div>
 
   <div class="panel">
@@ -116,7 +135,7 @@ function apply(m){
   $('players').textContent=st.players==null?'—':st.players;
   $('bots').textContent=bt.connected||0;
   $('botsS').textContent=(bt.connected||0)+' / '+(bt.target||0);
-  $('botsLive').textContent = bt.running ? ('spawning: connected='+(bt.connected||0)+' spawned='+(bt.spawned||0)+' kicked='+(bt.kicked||0)) : 'idle';
+  $('botsLive').textContent = bt.running ? ('connected='+(bt.connected||0)+'/'+(bt.target||0)+' spawned='+(bt.spawned||0)+' kicked='+(bt.kicked||0)+' · '+(bt.shards||0)+' shards') : 'idle';
   $('rss').textContent=st.rssMb==null?'—':st.rssMb;
   $('rssS').textContent='MB'+(st.heapGb?(' / '+st.heapGb+'G heap'):'');
   const TC={GREEN:'var(--grn)',YELLOW:'var(--yel)',ORANGE:'var(--org)',RED:'var(--red)',EMERGENCY:'var(--red)'};
@@ -160,6 +179,15 @@ async function post(url, body){
   catch(e){ addLog('! '+e.message); }
 }
 function spark(seconds){ $('sparkS').textContent='starting…'; post('/api/spark/profiler',{seconds}); }
+function spawnBots(){ post('/api/test/start',{count:+$('count').value, stagger:+$('stagger').value||0}); }
+async function rcon(cmd){
+  const c = cmd || $('cmd').value.trim(); if(!c) return; if(!cmd) $('cmd').value='';
+  const t=$('token').value.trim();
+  try{ const r=await fetch('/api/rcon',{method:'POST',headers:{'Content-Type':'application/json','x-token':t},body:JSON.stringify({cmd:c})});
+    const j=await r.json();
+    $('rconOut').textContent='> '+c+'\n'+(j.ok?(j.out||'(no output)'):('! '+(j.msg||'failed')))+'\n\n'+$('rconOut').textContent;
+  }catch(e){ $('rconOut').textContent='! '+e.message+'\n'+$('rconOut').textContent; }
+}
 function addLog(l){ const el=$('log'); el.textContent+=l+'\n'; el.scrollTop=el.scrollHeight; }
 async function pollLog(){ try{ const r=await fetch('/api/log'); const a=await r.json(); $('log').textContent=a.map(x=>x.line).join('\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){} }
 setInterval(pollLog,3000); pollLog();

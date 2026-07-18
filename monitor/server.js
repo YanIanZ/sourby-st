@@ -22,7 +22,7 @@ const TOKEN = CFG.web.token || '';
 const SERVER_LOG = path.join(ROOT, CFG.server.dir || 'testserver', 'logs', 'latest.log');
 const state = {
   server: { running: false, pid: null, startedAt: null },
-  bots: { running: false, pid: null, connected: 0, spawned: 0, kicked: 0, target: 0 },
+  bots: { running: false, connected: 0, spawned: 0, kicked: 0, target: 0, shards: 0 },
   stats: { tps: null, mspt: null, players: null, rssMb: null, tier: null, memPct: null, heapGb: CFG.server.heapGb || null, ts: 0 },
   spark: { running: false, status: '', url: null, urls: [] },
   log: [],
@@ -58,9 +58,9 @@ function sendConsole(cmd) { try { return require('child_process').spawnSync('tmu
 
 // ---- child processes ----
 // The SERVER runs in its own tmux session ("st-server") so it survives a monitor restart; the
-// monitor attaches to it over RCON + PID discovery. The bot swarm stays a child (we parse its
-// stdout for live counts, and it's fine for it to stop if the monitor stops).
-let botsProc = null;
+// monitor attaches to it over RCON + PID discovery. The bot swarm runs as one-or-more child
+// processes (shards) — a single Node event loop caps out ~130 clients, so 1000 needs several.
+let botProcs = [];   // [{ proc, connected, spawned, kicked }]
 const SERVER_TMUX = 'st-server';
 function serverRunningPid() { return discoverServerPid(); }
 function startServer() {
@@ -79,25 +79,37 @@ async function stopServer() {
   setTimeout(() => { try { require('child_process').spawnSync('tmux', ['kill-session', '-t', SERVER_TMUX]); } catch (e) {} }, 10000);
   return { ok: true };
 }
-function startBots(count) {
-  if (botsProc) return { ok: false, msg: 'test already running' };
-  const args = ['swarm.js'];
-  if (count) args.push('--count', String(count));
-  botsProc = spawn('node', args, { cwd: ROOT });
-  state.bots.running = true; state.bots.pid = botsProc.pid; state.bots.target = count || CFG.bots.count;
-  botsProc.stdout.on('data', d => {
-    String(d).split('\n').forEach(l => {
+function aggBots() {
+  state.bots.connected = botProcs.reduce((a, b) => a + b.connected, 0);
+  state.bots.spawned = botProcs.reduce((a, b) => a + b.spawned, 0);
+  state.bots.kicked = botProcs.reduce((a, b) => a + b.kicked, 0);
+}
+function startBots(count, shards, stagger) {
+  if (botProcs.length) return { ok: false, msg: 'test already running' };
+  count = count || CFG.bots.count;
+  // auto-shard: ~150 bots per Node process, cap 16 shards
+  shards = Math.min(16, Math.max(1, shards || CFG.bots.shards || (count > 150 ? Math.ceil(count / 150) : 1)));
+  const per = Math.ceil(count / shards);
+  state.bots.running = true; state.bots.target = per * shards; state.bots.shards = shards;
+  for (let s = 0; s < shards; s++) {
+    const rec = { connected: 0, spawned: 0, kicked: 0, proc: null };
+    const args = ['swarm.js', '--count', String(per), '--prefix', (CFG.bots.prefix || 'ST_') + s + '_'];
+    if (stagger) args.push('--stagger', String(stagger));  // unique per-shard prefix avoids username clashes
+    const p = spawn('node', args, { cwd: ROOT });
+    rec.proc = p;
+    p.stdout.on('data', d => String(d).split('\n').forEach(l => {
       const m = l.match(/connected=(\d+) spawned=(\d+) kicked=(\d+)/);
-      if (m) { state.bots.connected = +m[1]; state.bots.spawned = +m[2]; state.bots.kicked = +m[3]; }
-      if (l.trim()) pushLog('[bots] ' + l.trim());
-    });
-  });
-  botsProc.on('exit', c => { pushLog('[bots] stopped (' + c + ')'); botsProc = null; state.bots.running = false; state.bots.pid = null; state.bots.connected = 0; state.bots.spawned = 0; });
-  return { ok: true };
+      if (m) { rec.connected = +m[1]; rec.spawned = +m[2]; rec.kicked = +m[3]; aggBots(); }
+    }));
+    p.on('exit', () => { rec.proc = null; if (botProcs.every(r => !r.proc)) { botProcs = []; state.bots.running = false; state.bots.connected = state.bots.spawned = 0; pushLog('[bots] all shards stopped'); } });
+    botProcs.push(rec);
+  }
+  pushLog('[bots] spawning ' + (per * shards) + ' bots across ' + shards + ' shard(s), ' + per + ' each' + (stagger ? (', stagger ' + stagger + 'ms') : ''));
+  return { ok: true, shards: shards, per: per, total: per * shards };
 }
 function stopBots() {
-  if (!botsProc) return { ok: false, msg: 'no test running' };
-  try { botsProc.kill('SIGTERM'); } catch (e) {}
+  if (!botProcs.length) return { ok: false, msg: 'no test running' };
+  botProcs.forEach(r => { try { r.proc && r.proc.kill('SIGTERM'); } catch (e) {} });
   return { ok: true };
 }
 
@@ -186,8 +198,25 @@ app.get('/api/stats', (req, res) => res.json(snapshot()));
 app.get('/api/log', (req, res) => res.json(state.log.slice(-100)));
 app.post('/api/server/start', auth, (req, res) => res.json(startServer()));
 app.post('/api/server/stop', auth, async (req, res) => res.json(await stopServer()));
-app.post('/api/test/start', auth, (req, res) => res.json(startBots(parseInt(req.body && req.body.count, 10) || CFG.bots.count)));
+app.post('/api/test/start', auth, (req, res) => {
+  const b = req.body || {};
+  res.json(startBots(parseInt(b.count, 10) || CFG.bots.count, parseInt(b.shards, 10) || 0, parseInt(b.stagger, 10) || 0));
+});
 app.post('/api/test/stop', auth, (req, res) => res.json(stopBots()));
+app.post('/api/server/restart', auth, async (req, res) => {
+  await stopServer();
+  setTimeout(() => startServer(), 13000);
+  pushLog('[server] restart requested');
+  res.json({ ok: true, msg: 'restarting (~15s)' });
+});
+// Full RCON console — run any server command from the dashboard.
+app.post('/api/rcon', auth, async (req, res) => {
+  const cmd = (req.body && req.body.cmd || '').trim();
+  if (!cmd) return res.json({ ok: false, msg: 'empty command' });
+  if (!serverRunningPid()) return res.json({ ok: false, msg: 'server not running' });
+  try { const out = strip(await rconCmd(cmd)); pushLog('[rcon] > ' + cmd); res.json({ ok: true, out: out }); }
+  catch (e) { res.json({ ok: false, msg: String(e.message || e) }); }
+});
 // Spark profiler — issued on the server CONSOLE (via tmux) so its async result URL lands in the
 // console log, which tailServerLog() scrapes; RCON would drop the delayed reply.
 app.post('/api/spark/profiler', auth, (req, res) => {
@@ -208,4 +237,4 @@ function broadcast() {
 }
 wss.on('connection', ws => { ws.send(JSON.stringify(snapshot())); });
 
-process.on('SIGINT', () => { try { botsProc && botsProc.kill(); } catch (e) {} process.exit(0); });
+process.on('SIGINT', () => { try { botProcs.forEach(r => r.proc && r.proc.kill()); } catch (e) {} process.exit(0); });

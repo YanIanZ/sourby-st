@@ -10,15 +10,16 @@
     "heapGb": 8,
     "version": "1.21.4",
     "viewDistance": 8,
-    "maxPlayers": 400,
+    "maxPlayers": 1000,
     "installVia": true
   },
   "bots": {
-    "count": 300,
-    "stagger": 80,
+    "count": 1000,
+    "stagger": 120,
     "moveInterval": 700,
     "step": 4,
-    "prefix": "ST_"
+    "prefix": "ST_",
+    "shards": 0
   },
   "web": {
     "port": 5555,
