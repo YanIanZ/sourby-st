@@ -1,0 +1,15 @@
+{
+  "name": "sourby-st",
+  "version": "1.0.0",
+  "description": "Lightweight distributed load-test bot swarm for your own Minecraft server (SourbyCraft / Paper / Folia).",
+  "type": "commonjs",
+  "bin": { "sourby-st": "swarm.js" },
+  "scripts": {
+    "start": "node swarm.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "minecraft-protocol": "^1.54.0"
+  },
+  "license": "MIT"
+}
