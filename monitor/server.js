@@ -30,20 +30,26 @@ const strip = s => String(s).replace(/§./g, '').replace(/\x1b\[[0-9;]*m/g, '');
 function pushLog(line) { state.log.push({ t: Date.now(), line }); if (state.log.length > 200) state.log.shift(); }
 
 // ---- child processes ----
-let serverProc = null, botsProc = null;
+// The SERVER runs in its own tmux session ("st-server") so it survives a monitor restart; the
+// monitor attaches to it over RCON + PID discovery. The bot swarm stays a child (we parse its
+// stdout for live counts, and it's fine for it to stop if the monitor stops).
+let botsProc = null;
+const SERVER_TMUX = 'st-server';
+function serverRunningPid() { return discoverServerPid(); }
 function startServer() {
-  if (serverProc) return { ok: false, msg: 'server already running' };
-  serverProc = spawn('bash', ['run-server.sh'], { cwd: ROOT });
-  state.server.running = true; state.server.pid = serverProc.pid; state.server.startedAt = Date.now();
-  serverProc.stdout.on('data', d => String(d).split('\n').forEach(l => l.trim() && pushLog('[server] ' + l.replace(/\x1b\[[0-9;]*m/g, '').trim())));
-  serverProc.stderr.on('data', d => pushLog('[server-err] ' + String(d).trim().slice(0, 200)));
-  serverProc.on('exit', c => { pushLog('[server] exited (' + c + ')'); serverProc = null; state.server.running = false; state.server.pid = null; if (rcon) { try { rcon.end(); } catch (e) {} rcon = null; } });
+  if (serverRunningPid()) return { ok: false, msg: 'server already running' };
+  const inner = 'cd ' + JSON.stringify(ROOT) + ' && exec bash run-server.sh';
+  const r = require('child_process').spawnSync('tmux', ['new-session', '-d', '-s', SERVER_TMUX, inner], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (r.status !== 0) return { ok: false, msg: 'tmux start failed: ' + String(r.stderr || '').trim() };
+  state.server.running = true; state.server.startedAt = Date.now();
+  pushLog('[server] launching in tmux session ' + SERVER_TMUX);
   return { ok: true };
 }
 async function stopServer() {
-  if (!serverProc) return { ok: false, msg: 'server not running' };
+  if (!serverRunningPid()) return { ok: false, msg: 'server not running' };
   try { await rconCmd('stop'); } catch (e) {}
-  setTimeout(() => { if (serverProc) try { serverProc.kill('SIGTERM'); } catch (e) {} }, 8000);
+  pushLog('[server] stop requested (rcon)');
+  setTimeout(() => { try { require('child_process').spawnSync('tmux', ['kill-session', '-t', SERVER_TMUX]); } catch (e) {} }, 10000);
   return { ok: true };
 }
 function startBots(count) {
@@ -98,7 +104,9 @@ function readRss() {
 // so the dashboard re-attaches instead of going blind. -Xmx<heap>G is ours; production uses %RAM.
 function discoverServerPid() {
   try {
-    const pat = '-Xmx' + (CFG.server.heapGb || 8) + 'G';
+    // No leading '-' — pgrep would parse "-Xmx…" as an option. "Xmx16G" still uniquely matches our
+    // test server (production uses -XX:MaxRAMPercentage, never -Xmx16G).
+    const pat = 'Xmx' + (CFG.server.heapGb || 8) + 'G';
     const out = require('child_process').execFileSync('pgrep', ['-f', pat], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
     const pid = parseInt(out.split('\n')[0], 10);
     return isNaN(pid) ? null : pid;
@@ -107,10 +115,10 @@ function discoverServerPid() {
 async function poll() {
   if (rconBusy) return; rconBusy = true;
   try {
-    // Poll whenever RCON is reachable — not only when we own the child — so a monitor restart
-    // (or a server started outside the dashboard) still shows live stats.
-    if (!serverProc && state.server.pid == null) { const p = discoverServerPid(); if (p) { state.server.pid = p; } }
-    if (serverProc || state.server.pid) {
+    // The server runs in its own tmux session; (re)discover its PID each poll so a monitor restart
+    // re-attaches instead of going blind.
+    if (state.server.pid == null) { const p = discoverServerPid(); if (p) state.server.pid = p; }
+    if (state.server.pid) {
       let alive = false;
       // SourbyCraft /tps carries TPS + MSPT + perf-tier + memory in one formatted block.
       try {
@@ -127,8 +135,9 @@ async function poll() {
       try { const l = strip(await rconCmd('list')); const mm = l.match(/There are\s+(\d+)/i) || l.match(/(\d+)\s+of/i); state.stats.players = mm ? +mm[1] : null; } catch (e) {}
       state.stats.rssMb = readRss();
       state.stats.ts = Date.now();
-      // Reflect an externally-running server in the header (we don't own its process handle).
-      if (!serverProc) { state.server.running = alive; if (!alive) { state.server.pid = null; state.stats.tps = state.stats.mspt = state.stats.players = null; } }
+      // Reflect liveness in the header; clear the stale PID/stats if the server went away.
+      state.server.running = alive;
+      if (!alive) { state.server.pid = null; state.stats.tps = state.stats.mspt = state.stats.players = state.stats.rssMb = null; }
     }
   } finally { rconBusy = false; }
   broadcast();
