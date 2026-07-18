@@ -44,7 +44,7 @@
   <h1>sourby-st monitor</h1>
   <span class="muted" id="sub">connecting…</span>
   <span style="flex:1"></span>
-  <input id="token" placeholder="control token" style="width:150px" />
+  <input id="token" placeholder="control token" style="width:150px" oninput="localStorage.setItem('st_token',this.value)" />
 </header>
 <main>
   <div class="grid">
@@ -198,6 +198,8 @@ function connect(){
   ws.onmessage=e=>{ try{ apply(JSON.parse(e.data)); }catch(err){} };
 }
 connect();
+// restore saved token so controls work without re-typing (and auth is optional if server token is blank)
+$('token').value = localStorage.getItem('st_token') || '';
 </script>
 </body>
 </html>
