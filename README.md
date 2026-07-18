@@ -1,92 +1,105 @@
 # sourby-st
 
-Lightweight distributed **load-test bot swarm** for a Minecraft server you own — Paper / Folia /
-SourbyCraft. It connects many headless bots and walks each one outward so the server generates
-fresh chunks continuously, which is the real bottleneck for exploration load. Bots talk raw
-[`minecraft-protocol`](https://github.com/PrismarineJS/node-minecraft-protocol) (no world/chunk
-parsing), so a single small VPS can drive **hundreds** of them.
+Self-hosted Minecraft **load-test platform**: an auto-deployed test server, a lightweight bot
+swarm that explores the world to stress chunk generation, and a **web dashboard** with live
+stats + remote start/stop — all driven from one `config.json`, so you never pass `--host … --port …`
+by hand.
 
-> ⚠️ **Only test servers you own or are explicitly authorised to test.** This is a load-testing tool
-> for capacity planning, like SoulFire — not an attack tool. Do not point it at servers you don't
-> control. It uses normal client connections; it does **not** spoof IPs, use proxies, or evade
-> rate-limits.
+> ⚠️ **Authorised testing only.** Point this at a server **you own or are explicitly allowed to test.**
+> Do not route bots through third-party/anonymous proxies and do not aim it at anyone else's server —
+> that is a denial-of-service attack, not a load test. It uses normal client connections; it does not
+> spoof IPs or evade rate-limits.
 
-## Why run it from a VPS (not the same box as the server)
+---
 
-The bots + Node.js overhead compete with the server for CPU/RAM. To measure the SERVER's true
-ceiling (e.g. 300 players), run the swarm on a **separate machine** — a cheap VPS is ideal — pointed
-at your server's public IP. Running both on one box just measures that box.
+## What's in the box
 
-## Requirements
+| Piece | File | Does |
+|-------|------|------|
+| Auto-deploy | `deploy.sh` | Builds a test server: offline-mode, RCON on, connection-throttle off, ViaVersion+ViaBackwards, big max-players, right-sized heap. Idempotent. |
+| Server runner | `run-server.sh` | Boots the server with a sane ZGC flag set (SoftMax heap, off-heap headroom, SIMD). |
+| Bot swarm | `swarm.js` | N headless bots (raw `minecraft-protocol`, no chunk parsing) each walking outward → continuous fresh-chunk load. Hundreds per box. |
+| Web monitor | `monitor/server.js` + `monitor/public/` | Live dashboard (TPS/MSPT/players/RSS/bots), `/api/stats` JSON you can share, and token-gated Start/Stop for both server and test. |
 
-- **Node.js 18+** and **git** on the VPS.
-- Your server must be **`online-mode=false`** (offline) so bots can join with any username — OR give
-  the bots real accounts (not supported here; use offline for load tests).
-- If your server runs a **newer** version than the bot's `--version` (e.g. SourbyCraft reports
-  `26.2`), install **ViaVersion + ViaBackwards** on the server so the bots' `1.21.11` clients are
-  accepted.
+Everything reads **`config.json`** — set it once, no CLI flags needed.
 
-## Install (clean VPS)
+---
+
+## Quick start (clean VPS)
 
 ```bash
-# Debian/Ubuntu example
-sudo apt update && sudo apt install -y nodejs npm git   # or use nvm for a newer Node
 git clone https://github.com/YanIanZ/sourby-st.git
 cd sourby-st
-npm install
+bash install.sh        # installs Node + Java if missing, runs npm install
+nano config.json       # set jarUrl (or drop your server.jar here), rconPassword, web.token
+bash deploy.sh         # build the test server
+node monitor/server.js # dashboard on http://<vps-ip>:8080
 ```
 
-## Run
+Open `http://<vps-ip>:8080`, paste your `web.token`, hit **Start server**, then **Start test**.
+Both the dashboard and swarm read `config.json` — no `--host … --port … --count …` by hand.
+
+### Share live stats
+`http://<vps-ip>:8080/api/stats` returns JSON (TPS/MSPT/players/RSS/bots). Send that URL to anyone
+(or your assistant) to watch the run remotely. It's read-only; controls stay behind `web.token`.
+
+---
+
+## config.json
+
+```jsonc
+{
+  "server": {
+    "host": "127.0.0.1",         // dashboard/swarm target (leave local for on-box tests)
+    "port": 25565,
+    "rconPort": 25575,
+    "rconPassword": "CHANGE_ME",  // dashboard reads this to poll TPS/MSPT/list
+    "jarUrl": "",                // URL to your server jar, OR drop server.jar in this folder
+    "jarFile": "server.jar",
+    "dir": "testserver",
+    "heapGb": 8,                  // size to the box; leave headroom for the OS + bots
+    "version": "1.21.11",         // client version the bots speak (needs Via on a newer server)
+    "viewDistance": 8,
+    "maxPlayers": 400,
+    "installVia": true
+  },
+  "bots":  { "count": 300, "stagger": 80, "moveInterval": 700, "step": 4, "prefix": "ST_" },
+  "web":   { "port": 8080, "token": "CHANGE_ME" }
+}
+```
+
+## Manual bot swarm (optional)
 
 ```bash
-# 300 bots exploring your server
-node swarm.js --host YOUR.SERVER.IP --port 25565 --count 300 --version 1.21.11
+node swarm.js                              # uses config.json
+node swarm.js --count 150 --stagger 120    # flags override config
+node swarm.js --host YOUR.IP --count 50    # ramp: 50 → 100 → 200 → 300 to find the ceiling
+node swarm.js --help
 ```
 
-Ramp gradually the first time to find the ceiling:
+- If you see `Connection throttled`, raise `--stagger` (the server throttles connects per-IP; the
+  auto-deploy already sets `connection-throttle: -1` on the test server).
+- If bots bounce with *"Outdated client"*, the server speaks a newer protocol — `installVia:true`
+  handles it (ViaVersion + ViaBackwards).
+- `--duration 300` auto-stops after 5 min; otherwise `Ctrl-C` disconnects cleanly.
 
-```bash
-node swarm.js --host YOUR.SERVER.IP --count 50    # then 100, 200, 300 ...
-```
+## How the load works
 
-Stop with `Ctrl-C` (bots disconnect cleanly), or set `--duration 300` to auto-stop after 5 minutes.
+Each bot connects → confirms the spawn teleport → sends a `position` packet every `moveInterval` ms,
+stepped `step` blocks along a **unique outward heading**. Many headings at once force new-chunk
+generation in every direction — the same load a wave of exploring players creates. Bots never parse
+chunk data, so each is just a socket plus a timer → hundreds fit on a small VPS.
 
-### Options
+## Measuring
 
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--host <ip>` | `127.0.0.1` | server address |
-| `--port <n>` | `25565` | server port |
-| `--count <n>` | `100` | number of bots |
-| `--version <v>` | `1.21.11` | client protocol version (server needs Via if older than server) |
-| `--stagger <ms>` | `80` | delay between each connect — **raise this if you see "Connection throttled"** |
-| `--move-interval <ms>` | `700` | movement-packet cadence |
-| `--step <blocks>` | `4` | blocks moved outward per packet |
-| `--prefix <str>` | `ST_` | bot username prefix |
-| `--usernames a,b,c` | — | explicit username list (overrides prefix/count) |
-| `--duration <sec>` | `0` | auto-stop after N seconds (0 = until Ctrl-C) |
+- Dashboard shows TPS / MSPT / players / server RSS / connected bots, with a rolling TPS graph.
+- Or use [spark](https://spark.lucko.me/): `/spark health`, `/spark profiler --timeout 60`.
 
-`node swarm.js --help` prints the same.
-
-## Server-side prep for a big test
-
-- **Connection throttle:** Paper's `bukkit.yml` `settings.connection-throttle` is per-IP (default
-  4000 ms). Since all bots share the VPS IP, either set it to `-1` for the test, or raise `--stagger`
-  above the throttle (e.g. `--stagger 4500`).
-- **`max-players`** in `server.properties` must be ≥ your bot count.
-- Measure with [spark](https://spark.lucko.me/): `/spark health`, `/spark profiler --timeout 60`.
-  Watch TPS, tick durations, memory, and where tick time goes.
-- Give the server a right-sized heap with off-heap headroom, e.g.
-  `-Xmx8G -XX:+UseZGC -XX:+ZGenerational -XX:SoftMaxHeapSize=6800M -XX:ZUncommitDelay=60 -XX:MaxDirectMemorySize=1G -XX:+ExplicitGCInvokesConcurrent` on a 12 GB box.
-
-## How it works
-
-Each bot: connects → confirms the server's spawn-position teleport → sends a `position` movement
-packet every `--move-interval` ms with coordinates stepped `--step` blocks along a unique outward
-heading. Continuous outward movement across many headings forces the server to generate new chunks
-in every direction — the same load a wave of exploring players creates. Bots never parse chunk data,
-so each one is just a socket plus a timer.
-
-## License
-
-MIT.
+## Notes / safety
+- **Same-box testing** (server + bots + dashboard on one machine) competes for CPU/RAM. If a
+  production server shares the box, size `heapGb` down and keep the bot count modest — watch the
+  dashboard RSS so you don't OOM the host. For a server's true ceiling, run the swarm from a
+  **separate** VPS pointed at the server's public IP.
+- Test server runs **offline-mode** (`online-mode=false`) so bots join without accounts. Never expose
+  it as a real server.
+- MIT licensed. No warranty.

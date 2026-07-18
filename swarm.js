@@ -10,6 +10,10 @@
  */
 'use strict';
 
+// Defaults come from config.json (so you can just `node swarm.js` with no flags); CLI flags override.
+let CFG = { server: {}, bots: {} };
+try { CFG = require('./config.json'); } catch (e) { /* run with flags/defaults */ }
+
 // ---- args ----
 function arg(name, def) {
   const i = process.argv.indexOf('--' + name);
@@ -18,14 +22,14 @@ function arg(name, def) {
   if (eq) return eq.split('=').slice(1).join('=');
   return def;
 }
-const HOST = arg('host', '127.0.0.1');
-const PORT = parseInt(arg('port', '25565'), 10);
-const COUNT = parseInt(arg('count', '100'), 10);
-const VERSION = arg('version', '1.21.11');       // client version (server needs Via if older than server)
-const STAGGER = parseInt(arg('stagger', '80'), 10);       // ms between each bot connect (raise if server throttles)
-const MOVE_MS = parseInt(arg('move-interval', '700'), 10); // ms between movement packets
-const STEP = parseFloat(arg('step', '4'));                 // blocks moved per movement packet (outward)
-const PREFIX = arg('prefix', 'ST_');                       // username prefix
+const HOST = arg('host', CFG.server.host || '127.0.0.1');
+const PORT = parseInt(arg('port', CFG.server.port || '25565'), 10);
+const COUNT = parseInt(arg('count', CFG.bots.count || '100'), 10);
+const VERSION = arg('version', CFG.server.version || '1.21.11'); // client version (server needs Via if older than server)
+const STAGGER = parseInt(arg('stagger', CFG.bots.stagger || '80'), 10);        // ms between each bot connect (raise if server throttles)
+const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '700'), 10); // ms between movement packets
+const STEP = parseFloat(arg('step', CFG.bots.step || '4'));                    // blocks moved per movement packet (outward)
+const PREFIX = arg('prefix', CFG.bots.prefix || 'ST_');                        // username prefix
 const DURATION = parseInt(arg('duration', '0'), 10);       // seconds; 0 = run until Ctrl-C
 const USERNAME_LIST = arg('usernames', '');                // optional comma list to use instead of PREFIX+i
 

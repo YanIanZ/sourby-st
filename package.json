@@ -1,15 +1,20 @@
 {
   "name": "sourby-st",
-  "version": "1.0.0",
-  "description": "Lightweight distributed load-test bot swarm for your own Minecraft server (SourbyCraft / Paper / Folia).",
+  "version": "2.0.0",
+  "description": "Complete self-hosted Minecraft load-test platform: auto-deploy a test server, drive hundreds of exploring bots, and watch a live web dashboard — for your own server.",
   "type": "commonjs",
   "bin": { "sourby-st": "swarm.js" },
   "scripts": {
-    "start": "node swarm.js"
+    "swarm": "node swarm.js",
+    "monitor": "node monitor/server.js",
+    "deploy": "bash deploy.sh"
   },
   "engines": { "node": ">=18" },
   "dependencies": {
-    "minecraft-protocol": "^1.54.0"
+    "express": "^4.19.2",
+    "minecraft-protocol": "^1.54.0",
+    "rcon-client": "^4.2.5",
+    "ws": "^8.18.0"
   },
   "license": "MIT"
 }

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>sourby-st monitor</title>
+<style>
+  :root { --bg:#0e1116; --card:#161b22; --line:#232a34; --fg:#e6edf3; --dim:#8b949e; --grn:#3fb950; --yel:#d29922; --red:#f85149; --acc:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:650; letter-spacing:.3px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--dim); }
+  .dot.on { background:var(--grn); box-shadow:0 0 8px var(--grn); }
+  main { padding:20px; max-width:1100px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card .k { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  .card .v { font-size:28px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .card .s { color:var(--dim); font-size:12px; margin-top:2px; }
+  canvas { width:100%; height:120px; background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:16px; }
+  .controls { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  button { background:#21262d; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; }
+  button:hover { border-color:var(--acc); }
+  button.go { background:var(--grn); color:#02120a; border-color:var(--grn); }
+  button.stop { background:var(--red); color:#180404; border-color:var(--red); }
+  input { background:#0d1117; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:110px; }
+  .log { background:#0a0d12; border:1px solid var(--line); border-radius:10px; padding:12px; height:220px; overflow:auto; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--dim); white-space:pre-wrap; }
+  .log b { color:var(--acc); }
+  .muted { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="ws"></span>
+  <h1>sourby-st monitor</h1>
+  <span class="muted" id="sub">connecting…</span>
+  <span style="flex:1"></span>
+  <input id="token" placeholder="control token" style="width:150px" />
+</header>
+<main>
+  <div class="grid">
+    <div class="card"><div class="k">TPS</div><div class="v" id="tps">—</div><div class="s">target 20</div></div>
+    <div class="card"><div class="k">MSPT</div><div class="v" id="mspt">—</div><div class="s">ms/tick</div></div>
+    <div class="card"><div class="k">Players</div><div class="v" id="players">—</div><div class="s" id="playersS">on server</div></div>
+    <div class="card"><div class="k">Bots</div><div class="v" id="bots">—</div><div class="s" id="botsS">connected / target</div></div>
+    <div class="card"><div class="k">Server RSS</div><div class="v" id="rss">—</div><div class="s" id="rssS">MB</div></div>
+    <div class="card"><div class="k">Server</div><div class="v" id="srv">—</div><div class="s" id="srvS">state</div></div>
+  </div>
+  <canvas id="graph" width="1080" height="120"></canvas>
+  <div class="controls">
+    <button class="go" onclick="post('/api/server/start')">▶ Start server</button>
+    <button class="stop" onclick="post('/api/server/stop')">■ Stop server</button>
+    <span style="width:12px"></span>
+    <input id="count" type="number" placeholder="bots" value="300" />
+    <button class="go" onclick="post('/api/test/start',{count:+document.getElementById('count').value})">▶ Start test</button>
+    <button class="stop" onclick="post('/api/test/stop')">■ Stop test</button>
+  </div>
+  <div class="log" id="log"></div>
+  <p class="muted">Live stats JSON: <code>/api/stats</code> — send that URL to anyone (or to your assistant) to watch remotely.</p>
+</main>
+<script>
+const tpsHist = [];
+const $ = id => document.getElementById(id);
+function fmt(n, d=1){ return n==null ? '—' : (+n).toFixed(d); }
+function apply(m){
+  const st = m.stats||{}, sv = m.server||{}, bt = m.bots||{};
+  $('tps').textContent = fmt(st.tps,1);
+  $('tps').style.color = st.tps==null?'':(st.tps>=18?'var(--grn)':st.tps>=15?'var(--yel)':'var(--red)');
+  $('mspt').textContent = fmt(st.mspt, st.mspt!=null&&st.mspt<10?2:1);
+  $('players').textContent = st.players==null?'—':st.players;
+  $('bots').textContent = bt.connected||0;
+  $('botsS').textContent = (bt.connected||0)+' / '+(bt.target||0)+(bt.kicked?('  ('+bt.kicked+' kicked)'):'');
+  $('rss').textContent = st.rssMb==null?'—':st.rssMb;
+  $('rssS').textContent = 'MB'+(st.heapGb?(' / '+st.heapGb+'G heap'):'');
+  $('srv').textContent = sv.running?'UP':'down';
+  $('srv').style.color = sv.running?'var(--grn)':'var(--dim)';
+  $('srvS').textContent = sv.pid?('pid '+sv.pid):'stopped';
+  $('sub').textContent = 'updated '+new Date().toLocaleTimeString();
+  if (st.tps!=null){ tpsHist.push(st.tps); if(tpsHist.length>180)tpsHist.shift(); drawGraph(); }
+}
+function drawGraph(){
+  const c=$('graph'), x=c.getContext('2d'), W=c.width, H=c.height; x.clearRect(0,0,W,H);
+  x.strokeStyle='#232a34'; x.lineWidth=1;
+  [20,15,10].forEach(v=>{ const y=H-(v/20)*H; x.beginPath(); x.moveTo(0,y); x.lineTo(W,y); x.stroke(); x.fillStyle='#4d5866'; x.fillText(v,4,y-2); });
+  if(tpsHist.length<2)return;
+  x.beginPath(); x.strokeStyle='#58a6ff'; x.lineWidth=2;
+  tpsHist.forEach((v,i)=>{ const px=i/(tpsHist.length-1)*W, py=H-(Math.min(v,20)/20)*H; i?x.lineTo(px,py):x.moveTo(px,py); });
+  x.stroke();
+}
+async function post(url, body){
+  const t=$('token').value.trim();
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-token':t},body:JSON.stringify(body||{})});
+    const j=await r.json(); if(!j.ok) addLog('! '+(j.msg||'failed'));
+  }catch(e){ addLog('! '+e.message); }
+}
+function addLog(l){ const el=$('log'); el.textContent+=l+'\n'; el.scrollTop=el.scrollHeight; }
+async function pollLog(){ try{ const r=await fetch('/api/log'); const a=await r.json(); $('log').textContent=a.map(x=>x.line).join('\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){} }
+setInterval(pollLog, 3000); pollLog();
+function connect(){
+  const ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host);
+  ws.onopen=()=>{ $('ws').classList.add('on'); };
+  ws.onclose=()=>{ $('ws').classList.remove('on'); setTimeout(connect,2000); };
+  ws.onmessage=e=>{ try{ apply(JSON.parse(e.data)); }catch(err){} };
+}
+connect();
+</script>
+</body>
+</html>

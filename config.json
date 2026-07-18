@@ -1,0 +1,27 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 25565,
+    "rconPort": 25575,
+    "rconPassword": "CHANGE_ME_rcon",
+    "jarUrl": "",
+    "jarFile": "server.jar",
+    "dir": "testserver",
+    "heapGb": 8,
+    "version": "1.21.11",
+    "viewDistance": 8,
+    "maxPlayers": 400,
+    "installVia": true
+  },
+  "bots": {
+    "count": 300,
+    "stagger": 80,
+    "moveInterval": 700,
+    "step": 4,
+    "prefix": "ST_"
+  },
+  "web": {
+    "port": 8080,
+    "token": "CHANGE_ME_token"
+  }
+}
