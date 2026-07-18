@@ -5,28 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>sourby-st monitor</title>
 <style>
-  :root { --bg:#0e1116; --card:#161b22; --line:#232a34; --fg:#e6edf3; --dim:#8b949e; --grn:#3fb950; --yel:#d29922; --red:#f85149; --acc:#58a6ff; }
+  :root { --bg:#0e1116; --card:#161b22; --line:#232a34; --fg:#e6edf3; --dim:#8b949e; --grn:#3fb950; --yel:#d29922; --org:#e8873a; --red:#f85149; --acc:#58a6ff; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
-  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
   header h1 { font-size:16px; margin:0; font-weight:650; letter-spacing:.3px; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--dim); }
   .dot.on { background:var(--grn); box-shadow:0 0 8px var(--grn); }
-  main { padding:20px; max-width:1100px; margin:0 auto; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-  .card .k { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
-  .card .v { font-size:28px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
-  .card .s { color:var(--dim); font-size:12px; margin-top:2px; }
-  canvas { width:100%; height:120px; background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:16px; }
-  .controls { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  button { background:#21262d; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; }
+  main { padding:18px; max-width:1160px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .card .k { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  .card .v { font-size:26px; font-weight:700; margin-top:3px; font-variant-numeric:tabular-nums; }
+  .card .s { color:var(--dim); font-size:11px; margin-top:2px; }
+  .graphs { display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:14px; }
+  @media (max-width:720px){ .graphs{ grid-template-columns:1fr; } }
+  .gwrap { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  .gwrap .gt { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.5px; margin:2px 2px 4px; }
+  canvas { width:100%; height:130px; display:block; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+  .panel h3 { margin:0 0 10px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; font-weight:600; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button { background:#21262d; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 13px; cursor:pointer; font-weight:600; }
   button:hover { border-color:var(--acc); }
   button.go { background:var(--grn); color:#02120a; border-color:var(--grn); }
   button.stop { background:var(--red); color:#180404; border-color:var(--red); }
-  input { background:#0d1117; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:110px; }
-  .log { background:#0a0d12; border:1px solid var(--line); border-radius:10px; padding:12px; height:220px; overflow:auto; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--dim); white-space:pre-wrap; }
-  .log b { color:var(--acc); }
+  button.sm { padding:6px 10px; font-weight:600; }
+  input { background:#0d1117; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:100px; }
+  .sep { width:1px; height:26px; background:var(--line); margin:0 4px; }
+  a.spark { color:var(--acc); font-weight:600; word-break:break-all; }
+  .log { background:#0a0d12; border:1px solid var(--line); border-radius:10px; padding:12px; height:230px; overflow:auto; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--dim); white-space:pre-wrap; }
   .muted { color:var(--dim); font-size:12px; }
 </style>
 </head>
@@ -41,71 +49,123 @@
 <main>
   <div class="grid">
     <div class="card"><div class="k">TPS</div><div class="v" id="tps">—</div><div class="s">target 20</div></div>
-    <div class="card"><div class="k">MSPT</div><div class="v" id="mspt">—</div><div class="s">ms/tick</div></div>
-    <div class="card"><div class="k">Players</div><div class="v" id="players">—</div><div class="s" id="playersS">on server</div></div>
+    <div class="card"><div class="k">MSPT</div><div class="v" id="mspt">—</div><div class="s">ms/tick (budget 50)</div></div>
+    <div class="card"><div class="k">Players</div><div class="v" id="players">—</div><div class="s">on server</div></div>
     <div class="card"><div class="k">Bots</div><div class="v" id="bots">—</div><div class="s" id="botsS">connected / target</div></div>
     <div class="card"><div class="k">Server RSS</div><div class="v" id="rss">—</div><div class="s" id="rssS">MB</div></div>
     <div class="card"><div class="k">Perf tier</div><div class="v" id="tier">—</div><div class="s" id="tierS">self-tune</div></div>
     <div class="card"><div class="k">Server</div><div class="v" id="srv">—</div><div class="s" id="srvS">state</div></div>
   </div>
-  <canvas id="graph" width="1080" height="120"></canvas>
-  <div class="controls">
-    <button class="go" onclick="post('/api/server/start')">▶ Start server</button>
-    <button class="stop" onclick="post('/api/server/stop')">■ Stop server</button>
-    <span style="width:12px"></span>
-    <input id="count" type="number" placeholder="bots" value="300" />
-    <button class="go" onclick="post('/api/test/start',{count:+document.getElementById('count').value})">▶ Start test</button>
-    <button class="stop" onclick="post('/api/test/stop')">■ Stop test</button>
+
+  <div class="graphs">
+    <div class="gwrap"><div class="gt">TPS <span style="color:var(--acc)">▬</span> &nbsp; Players <span style="color:#7d5bed">▬</span></div><canvas id="gTps" width="760" height="130"></canvas></div>
+    <div class="gwrap"><div class="gt">MSPT (ms)</div><canvas id="gMspt" width="380" height="130"></canvas></div>
   </div>
+
+  <div class="panel">
+    <h3>Server</h3>
+    <div class="row">
+      <button class="go" onclick="post('/api/server/start')">▶ Start server</button>
+      <button class="stop" onclick="post('/api/server/stop')">■ Stop server</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Bot swarm</h3>
+    <div class="row">
+      <button class="sm" onclick="setCount(50)">50</button>
+      <button class="sm" onclick="setCount(100)">100</button>
+      <button class="sm" onclick="setCount(200)">200</button>
+      <button class="sm" onclick="setCount(300)">300</button>
+      <input id="count" type="number" value="300" />
+      <button class="go" onclick="post('/api/test/start',{count:+document.getElementById('count').value})">▶ Spawn bots</button>
+      <button class="stop" onclick="post('/api/test/stop')">■ Stop bots</button>
+      <span class="sep"></span>
+      <span class="muted" id="botsLive">idle</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Spark profiler</h3>
+    <div class="row">
+      <button class="go" onclick="spark(30)">▶ Profile 30s</button>
+      <button class="go" onclick="spark(60)">▶ Profile 60s</button>
+      <span class="sep"></span>
+      <span class="muted" id="sparkS">idle</span>
+      <span id="sparkLink"></span>
+    </div>
+    <div class="muted" id="sparkHist" style="margin-top:8px"></div>
+  </div>
+
   <div class="log" id="log"></div>
-  <p class="muted">Live stats JSON: <code>/api/stats</code> — send that URL to anyone (or to your assistant) to watch remotely.</p>
+  <p class="muted">Live stats JSON: <code>/api/stats</code> — shareable, read-only. Controls need the token.</p>
 </main>
 <script>
-const tpsHist = [];
+const tps=[], mspt=[], players=[];
 const $ = id => document.getElementById(id);
-function fmt(n, d=1){ return n==null ? '—' : (+n).toFixed(d); }
+const fmt = (n,d=1) => n==null ? '—' : (+n).toFixed(d);
+let lastSpark=null;
+
+function setCount(n){ $('count').value=n; }
 function apply(m){
-  const st = m.stats||{}, sv = m.server||{}, bt = m.bots||{};
-  $('tps').textContent = fmt(st.tps,1);
-  $('tps').style.color = st.tps==null?'':(st.tps>=18?'var(--grn)':st.tps>=15?'var(--yel)':'var(--red)');
-  $('mspt').textContent = fmt(st.mspt, st.mspt!=null&&st.mspt<10?2:1);
-  $('players').textContent = st.players==null?'—':st.players;
-  $('bots').textContent = bt.connected||0;
-  $('botsS').textContent = (bt.connected||0)+' / '+(bt.target||0)+(bt.kicked?('  ('+bt.kicked+' kicked)'):'');
-  $('rss').textContent = st.rssMb==null?'—':st.rssMb;
-  $('rssS').textContent = 'MB'+(st.heapGb?(' / '+st.heapGb+'G heap'):'');
-  const TC={GREEN:'var(--grn)',YELLOW:'var(--yel)',ORANGE:'#e8873a',RED:'var(--red)',EMERGENCY:'var(--red)'};
-  $('tier').textContent = st.tier||'—';
-  $('tier').style.color = TC[st.tier]||'var(--dim)';
-  $('tierS').textContent = st.memPct!=null?('mem '+st.memPct+'%'):'self-tune';
-  $('srv').textContent = sv.running?'UP':'down';
-  $('srv').style.color = sv.running?'var(--grn)':'var(--dim)';
-  $('srvS').textContent = sv.pid?('pid '+sv.pid):'stopped';
-  $('sub').textContent = 'updated '+new Date().toLocaleTimeString();
-  if (st.tps!=null){ tpsHist.push(st.tps); if(tpsHist.length>180)tpsHist.shift(); drawGraph(); }
+  const st=m.stats||{}, sv=m.server||{}, bt=m.bots||{}, sp=m.spark||{};
+  $('tps').textContent=fmt(st.tps,1);
+  $('tps').style.color=st.tps==null?'':(st.tps>=18?'var(--grn)':st.tps>=15?'var(--yel)':'var(--red)');
+  $('mspt').textContent=fmt(st.mspt, st.mspt!=null&&st.mspt<10?2:1);
+  $('mspt').style.color=st.mspt==null?'':(st.mspt<25?'var(--grn)':st.mspt<50?'var(--yel)':'var(--red)');
+  $('players').textContent=st.players==null?'—':st.players;
+  $('bots').textContent=bt.connected||0;
+  $('botsS').textContent=(bt.connected||0)+' / '+(bt.target||0);
+  $('botsLive').textContent = bt.running ? ('spawning: connected='+(bt.connected||0)+' spawned='+(bt.spawned||0)+' kicked='+(bt.kicked||0)) : 'idle';
+  $('rss').textContent=st.rssMb==null?'—':st.rssMb;
+  $('rssS').textContent='MB'+(st.heapGb?(' / '+st.heapGb+'G heap'):'');
+  const TC={GREEN:'var(--grn)',YELLOW:'var(--yel)',ORANGE:'var(--org)',RED:'var(--red)',EMERGENCY:'var(--red)'};
+  $('tier').textContent=st.tier||'—'; $('tier').style.color=TC[st.tier]||'var(--dim)';
+  $('tierS').textContent=st.memPct!=null?('mem '+st.memPct+'%'):'self-tune';
+  $('srv').textContent=sv.running?'UP':'down'; $('srv').style.color=sv.running?'var(--grn)':'var(--dim)';
+  $('srvS').textContent=sv.pid?('pid '+sv.pid):'stopped';
+  $('sub').textContent='updated '+new Date().toLocaleTimeString();
+  // spark
+  $('sparkS').textContent = sp.running ? ('running… '+(sp.status||'')) : (sp.status||'idle');
+  if (sp.url && sp.url!==lastSpark){ lastSpark=sp.url; $('sparkLink').innerHTML=' → <a class="spark" href="'+sp.url+'" target="_blank">'+sp.url+'</a>'; try{ window.open(sp.url,'_blank'); }catch(e){} }
+  if (sp.urls && sp.urls.length) $('sparkHist').innerHTML='recent: '+sp.urls.map(u=>'<a class="spark" href="'+u+'" target="_blank">'+u.split('/').pop()+'</a>').join(' · ');
+  if (st.tps!=null){ push(tps,st.tps); push(players,st.players||0); push(mspt,st.mspt||0); draw(); }
 }
-function drawGraph(){
-  const c=$('graph'), x=c.getContext('2d'), W=c.width, H=c.height; x.clearRect(0,0,W,H);
-  x.strokeStyle='#232a34'; x.lineWidth=1;
-  [20,15,10].forEach(v=>{ const y=H-(v/20)*H; x.beginPath(); x.moveTo(0,y); x.lineTo(W,y); x.stroke(); x.fillStyle='#4d5866'; x.fillText(v,4,y-2); });
-  if(tpsHist.length<2)return;
-  x.beginPath(); x.strokeStyle='#58a6ff'; x.lineWidth=2;
-  tpsHist.forEach((v,i)=>{ const px=i/(tpsHist.length-1)*W, py=H-(Math.min(v,20)/20)*H; i?x.lineTo(px,py):x.moveTo(px,py); });
-  x.stroke();
+function push(a,v){ a.push(v); if(a.length>200)a.shift(); }
+function line(ctx,arr,W,H,max,color,fill){
+  if(arr.length<2)return;
+  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=2;
+  arr.forEach((v,i)=>{ const x=i/(arr.length-1)*W, y=H-(Math.min(v,max)/max)*H; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.stroke();
+  if(fill){ ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); }
+}
+function draw(){
+  // TPS + players
+  let c=$('gTps'), x=c.getContext('2d'), W=c.width, H=c.height; x.clearRect(0,0,W,H);
+  x.strokeStyle='#232a34'; x.lineWidth=1; x.fillStyle='#4d5866';
+  [20,15,10,5].forEach(v=>{ const y=H-(v/20)*H; x.beginPath(); x.moveTo(0,y); x.lineTo(W,y); x.stroke(); x.fillText(v,4,y-2); });
+  const pmax=Math.max(50, ...players);
+  line(x,players,W,H,pmax,'rgba(125,91,237,0.9)','rgba(125,91,237,0.12)');
+  line(x,tps,W,H,20,'#58a6ff');
+  // MSPT
+  c=$('gMspt'); x=c.getContext('2d'); W=c.width; H=c.height; x.clearRect(0,0,W,H);
+  x.strokeStyle='#232a34'; x.lineWidth=1; x.fillStyle='#4d5866';
+  [50,25].forEach(v=>{ const y=H-(v/60)*H; x.beginPath(); x.moveTo(0,y); x.lineTo(W,y); x.stroke(); x.fillText(v+'ms',4,y-2); });
+  line(x,mspt,W,H,60,'#e8873a','rgba(232,135,58,0.12)');
 }
 async function post(url, body){
   const t=$('token').value.trim();
-  try{
-    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-token':t},body:JSON.stringify(body||{})});
-    const j=await r.json(); if(!j.ok) addLog('! '+(j.msg||'failed'));
-  }catch(e){ addLog('! '+e.message); }
+  try{ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-token':t},body:JSON.stringify(body||{})});
+    const j=await r.json(); if(!j.ok) addLog('! '+(j.msg||'failed')); }
+  catch(e){ addLog('! '+e.message); }
 }
+function spark(seconds){ $('sparkS').textContent='starting…'; post('/api/spark/profiler',{seconds}); }
 function addLog(l){ const el=$('log'); el.textContent+=l+'\n'; el.scrollTop=el.scrollHeight; }
 async function pollLog(){ try{ const r=await fetch('/api/log'); const a=await r.json(); $('log').textContent=a.map(x=>x.line).join('\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){} }
-setInterval(pollLog, 3000); pollLog();
+setInterval(pollLog,3000); pollLog();
 function connect(){
   const ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host);
-  ws.onopen=()=>{ $('ws').classList.add('on'); };
+  ws.onopen=()=>$('ws').classList.add('on');
   ws.onclose=()=>{ $('ws').classList.remove('on'); setTimeout(connect,2000); };
   ws.onmessage=e=>{ try{ apply(JSON.parse(e.data)); }catch(err){} };
 }

@@ -25,7 +25,9 @@ function arg(name, def) {
 const HOST = arg('host', CFG.server.host || '127.0.0.1');
 const PORT = parseInt(arg('port', CFG.server.port || '25565'), 10);
 const COUNT = parseInt(arg('count', CFG.bots.count || '100'), 10);
-const VERSION = arg('version', CFG.server.version || '1.21.11'); // client version (server needs Via if older than server)
+const VERSION = arg('version', CFG.server.version || '1.21.4'); // client version. Use 1.21.4: newer
+// minecraft-data (1.21.5+) has a broken lpVec3 type that desyncs the play stream and drops bots.
+// Via on the server bridges 1.21.4 up to any newer server protocol.
 const STAGGER = parseInt(arg('stagger', CFG.bots.stagger || '80'), 10);        // ms between each bot connect (raise if server throttles)
 const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '700'), 10); // ms between movement packets
 const STEP = parseFloat(arg('step', CFG.bots.step || '4'));                    // blocks moved per movement packet (outward)
@@ -42,7 +44,7 @@ Options:
   --host <ip>            server address           (default 127.0.0.1)
   --port <n>             server port              (default 25565)
   --count <n>            number of bots           (default 100)
-  --version <v>          client version           (default 1.21.11)
+  --version <v>          client version           (default 1.21.4; avoid 1.21.5+ lpVec3 bug)
   --stagger <ms>         delay between connects    (default 80; raise if you see "Connection throttled")
   --move-interval <ms>   movement packet cadence   (default 700)
   --step <blocks>        blocks moved per packet   (default 4)

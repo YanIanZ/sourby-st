@@ -19,15 +19,42 @@ const CFG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
 const WEB_PORT = CFG.web.port || 8080;
 const TOKEN = CFG.web.token || '';
 
+const SERVER_LOG = path.join(ROOT, CFG.server.dir || 'testserver', 'logs', 'latest.log');
 const state = {
   server: { running: false, pid: null, startedAt: null },
   bots: { running: false, pid: null, connected: 0, spawned: 0, kicked: 0, target: 0 },
   stats: { tps: null, mspt: null, players: null, rssMb: null, tier: null, memPct: null, heapGb: CFG.server.heapGb || null, ts: 0 },
+  spark: { running: false, status: '', url: null, urls: [] },
   log: [],
 };
 // Minecraft uses § colour codes (incl. §x§f§f… hex runs), not ANSI — strip both before parsing.
 const strip = s => String(s).replace(/§./g, '').replace(/\x1b\[[0-9;]*m/g, '');
 function pushLog(line) { state.log.push({ t: Date.now(), line }); if (state.log.length > 200) state.log.shift(); }
+
+// Tail the server console log: surfaces spark URLs (spark replies async to the console, not RCON)
+// plus warnings/errors into the dashboard. Handles rotation by resetting on shrink.
+let logOffset = -1;
+function tailServerLog() {
+  let st; try { st = fs.statSync(SERVER_LOG); } catch (e) { return; }
+  if (logOffset < 0) { logOffset = st.size; return; }          // start at EOF; don't replay old log
+  if (st.size < logOffset) logOffset = 0;                       // rotated
+  if (st.size === logOffset) return;
+  try {
+    const fd = fs.openSync(SERVER_LOG, 'r');
+    const buf = Buffer.alloc(st.size - logOffset);
+    fs.readSync(fd, buf, 0, buf.length, logOffset); fs.closeSync(fd);
+    logOffset = st.size;
+    for (const line of buf.toString('utf8').split('\n')) {
+      if (!line.trim()) continue;
+      const url = line.match(/https:\/\/spark\.lucko\.me\/[A-Za-z0-9]+/);
+      if (url) { state.spark.url = url[0]; state.spark.running = false; state.spark.status = 'done'; state.spark.urls.unshift(url[0]); state.spark.urls = state.spark.urls.slice(0, 8); pushLog('[spark] ' + url[0]); continue; }
+      const body = line.replace(/^\[[0-9:]+\]\s*\[[^\]]*\]:\s*/, '').trim();
+      if (/\[⚡\]|profiler/i.test(line)) { if (/now running/i.test(line)) state.spark.status = 'running'; pushLog('[spark] ' + body.replace(/\[⚡\]\s*/, '')); }
+      else if (/\/(WARN|ERROR)\]/.test(line)) pushLog('[mc] ' + body);
+    }
+  } catch (e) {}
+}
+function sendConsole(cmd) { try { return require('child_process').spawnSync('tmux', ['send-keys', '-t', SERVER_TMUX, cmd, 'Enter']).status === 0; } catch (e) { return false; } }
 
 // ---- child processes ----
 // The SERVER runs in its own tmux session ("st-server") so it survives a monitor restart; the
@@ -140,6 +167,7 @@ async function poll() {
       if (!alive) { state.server.pid = null; state.stats.tps = state.stats.mspt = state.stats.players = state.stats.rssMb = null; }
     }
   } finally { rconBusy = false; }
+  tailServerLog();
   broadcast();
 }
 setInterval(poll, 2000);
@@ -153,19 +181,31 @@ function auth(req, res, next) {
   if (TOKEN && t !== TOKEN) return res.status(401).json({ ok: false, msg: 'bad token' });
   next();
 }
-app.get('/api/stats', (req, res) => res.json({ server: state.server, bots: state.bots, stats: state.stats }));
+const snapshot = () => ({ server: state.server, bots: state.bots, stats: state.stats, spark: state.spark });
+app.get('/api/stats', (req, res) => res.json(snapshot()));
 app.get('/api/log', (req, res) => res.json(state.log.slice(-100)));
 app.post('/api/server/start', auth, (req, res) => res.json(startServer()));
 app.post('/api/server/stop', auth, async (req, res) => res.json(await stopServer()));
 app.post('/api/test/start', auth, (req, res) => res.json(startBots(parseInt(req.body && req.body.count, 10) || CFG.bots.count)));
 app.post('/api/test/stop', auth, (req, res) => res.json(stopBots()));
+// Spark profiler — issued on the server CONSOLE (via tmux) so its async result URL lands in the
+// console log, which tailServerLog() scrapes; RCON would drop the delayed reply.
+app.post('/api/spark/profiler', auth, (req, res) => {
+  if (!serverRunningPid()) return res.json({ ok: false, msg: 'server not running' });
+  const secs = Math.min(300, Math.max(10, parseInt(req.body && req.body.seconds, 10) || 30));
+  state.spark.running = true; state.spark.status = 'running ' + secs + 's'; state.spark.url = null;
+  const ok = sendConsole('spark profiler start --timeout ' + secs);
+  if (!ok) { state.spark.running = false; state.spark.status = 'failed to start'; }
+  res.json({ ok, secs });
+});
+app.get('/api/spark', (req, res) => res.json(state.spark));
 
 const server = app.listen(WEB_PORT, () => console.log('sourby-st monitor on http://0.0.0.0:' + WEB_PORT + '  (stats JSON: /api/stats)'));
 const wss = new WebSocketServer({ server });
 function broadcast() {
-  const msg = JSON.stringify({ server: state.server, bots: state.bots, stats: state.stats });
+  const msg = JSON.stringify(snapshot());
   wss.clients.forEach(c => { if (c.readyState === 1) try { c.send(msg); } catch (e) {} });
 }
-wss.on('connection', ws => { ws.send(JSON.stringify({ server: state.server, bots: state.bots, stats: state.stats })); });
+wss.on('connection', ws => { ws.send(JSON.stringify(snapshot())); });
 
 process.on('SIGINT', () => { try { botsProc && botsProc.kill(); } catch (e) {} process.exit(0); });

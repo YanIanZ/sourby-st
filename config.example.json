@@ -8,7 +8,7 @@
     "jarFile": "server.jar",
     "dir": "testserver",
     "heapGb": 8,
-    "version": "1.21.11",
+    "version": "1.21.4",
     "viewDistance": 8,
     "maxPlayers": 400,
     "installVia": true
@@ -21,7 +21,7 @@
     "prefix": "ST_"
   },
   "web": {
-    "port": 8080,
+    "port": 5555,
     "token": "CHANGE_ME_token"
   }
 }

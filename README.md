@@ -58,15 +58,26 @@ Both the dashboard and swarm read `config.json` — no `--host … --port … --
     "jarFile": "server.jar",
     "dir": "testserver",
     "heapGb": 8,                  // size to the box; leave headroom for the OS + bots
-    "version": "1.21.11",         // client version the bots speak (needs Via on a newer server)
+    "version": "1.21.4",          // client the bots speak — 1.21.4 avoids the 1.21.5+ lpVec3 bug
     "viewDistance": 8,
     "maxPlayers": 400,
     "installVia": true
   },
   "bots":  { "count": 300, "stagger": 80, "moveInterval": 700, "step": 4, "prefix": "ST_" },
-  "web":   { "port": 8080, "token": "CHANGE_ME" }
+  "web":   { "port": 5555, "token": "CHANGE_ME" }
 }
 ```
+
+> **Bot client version:** keep it at **1.21.4**. minecraft-data for 1.21.5+ has a broken `lpVec3`
+> packet type that desyncs the play stream and drops bots seconds after they join. Via on the server
+> bridges 1.21.4 up to any newer server protocol (e.g. 26.2), so this costs nothing.
+
+## Spark profiler
+
+If the server bundles [spark](https://spark.lucko.me/), the dashboard's **Profile 30s / 60s**
+buttons run `spark profiler` on the server console and surface the resulting `spark.lucko.me` report
+URL (auto-opened in a new tab, and listed under "recent"). Use it to see exactly where tick time goes
+under load.
 
 ## Manual bot swarm (optional)
 
