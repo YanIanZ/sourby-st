@@ -50,6 +50,7 @@ spawn-protection=0
 max-players=$MAXP
 motd=sourby-st test server
 network-compression-threshold=256
+allow-flight=true
 EOF
 
 # --- bukkit.yml: disable per-IP connection throttle so a swarm from one IP can connect fast ---
