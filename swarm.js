@@ -29,8 +29,10 @@ const VERSION = arg('version', CFG.server.version || '1.21.4'); // client versio
 // minecraft-data (1.21.5+) has a broken lpVec3 type that desyncs the play stream and drops bots.
 // Via on the server bridges 1.21.4 up to any newer server protocol.
 const STAGGER = parseInt(arg('stagger', CFG.bots.stagger || '80'), 10);        // ms between each bot connect (raise if server throttles)
-const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '700'), 10); // ms between movement packets
-const STEP = parseFloat(arg('step', CFG.bots.step || '4'));                    // blocks moved per movement packet (outward)
+const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '500'), 10); // ms between movement packets (lower = faster)
+const STEP = parseFloat(arg('step', CFG.bots.step || '8'));                    // blocks moved per movement packet (higher = faster)
+const FLY = process.argv.includes('--fly') || String(arg('fly', CFG.bots.fly ?? '')).toLowerCase() === 'true'; // cruise airborne (needs allow-flight); covers ground faster
+const CRUISE_Y = parseFloat(arg('cruise-y', CFG.bots.cruiseY || '120'));       // fly altitude
 const PREFIX = arg('prefix', CFG.bots.prefix || 'ST_');                        // username prefix
 const DURATION = parseInt(arg('duration', '0'), 10);       // seconds; 0 = run until Ctrl-C
 const USERNAME_LIST = arg('usernames', '');                // optional comma list to use instead of PREFIX+i
@@ -46,8 +48,10 @@ Options:
   --count <n>            number of bots           (default 100)
   --version <v>          client version           (default 1.21.4; avoid 1.21.5+ lpVec3 bug)
   --stagger <ms>         delay between connects    (default 80; raise if you see "Connection throttled")
-  --move-interval <ms>   movement packet cadence   (default 700)
-  --step <blocks>        blocks moved per packet   (default 4)
+  --move-interval <ms>   movement packet cadence   (default 500; lower = faster)
+  --step <blocks>        blocks moved per packet   (default 8; higher = faster)
+  --fly                  cruise airborne, faster   (server needs allow-flight=true)
+  --cruise-y <n>         fly altitude              (default 120)
   --prefix <str>         username prefix           (default ST_)
   --usernames a,b,c      explicit username list    (overrides prefix/count)
   --duration <sec>       auto-stop after N seconds (default 0 = until Ctrl-C)
@@ -95,9 +99,10 @@ function spawnBot(i) {
 
   client._iv = setInterval(() => {
     if (!ready) return;
-    x += dx; z += dz;                                 // walk outward -> forces new-chunk generation
+    x += dx; z += dz;                                 // walk/fly outward -> forces new-chunk generation
+    if (FLY && y < CRUISE_Y) y += 3;                  // climb to cruise altitude, then hold it
     // 1.21.2+ movement: MovementFlags bitfield (onGround / hasHorizontalCollision), not an onGround bool
-    try { client.write('position', { x, y, z, flags: { onGround: true, hasHorizontalCollision: false } }); } catch (e) {}
+    try { client.write('position', { x, y, z, flags: { onGround: FLY ? false : true, hasHorizontalCollision: false } }); } catch (e) {}
   }, MOVE_MS);
 
   bots.push(client);

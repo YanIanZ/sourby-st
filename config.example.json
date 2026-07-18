@@ -16,10 +16,12 @@
   "bots": {
     "count": 1000,
     "stagger": 120,
-    "moveInterval": 700,
-    "step": 4,
+    "moveInterval": 500,
+    "step": 8,
     "prefix": "ST_",
-    "shards": 0
+    "shards": 0,
+    "fly": true,
+    "cruiseY": 120
   },
   "web": {
     "port": 5555,
