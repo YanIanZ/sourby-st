@@ -94,10 +94,24 @@ function readRss() {
     const kb = parseInt(out, 10); return isNaN(kb) ? null : Math.round(kb / 1024);
   } catch (e) { return null; }
 }
+// Find a server we didn't start ourselves (e.g. after a monitor restart) by its unique heap flag,
+// so the dashboard re-attaches instead of going blind. -Xmx<heap>G is ours; production uses %RAM.
+function discoverServerPid() {
+  try {
+    const pat = '-Xmx' + (CFG.server.heapGb || 8) + 'G';
+    const out = require('child_process').execFileSync('pgrep', ['-f', pat], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const pid = parseInt(out.split('\n')[0], 10);
+    return isNaN(pid) ? null : pid;
+  } catch (e) { return null; }
+}
 async function poll() {
   if (rconBusy) return; rconBusy = true;
   try {
-    if (serverProc) {
+    // Poll whenever RCON is reachable — not only when we own the child — so a monitor restart
+    // (or a server started outside the dashboard) still shows live stats.
+    if (!serverProc && state.server.pid == null) { const p = discoverServerPid(); if (p) { state.server.pid = p; } }
+    if (serverProc || state.server.pid) {
+      let alive = false;
       // SourbyCraft /tps carries TPS + MSPT + perf-tier + memory in one formatted block.
       try {
         const t = strip(await rconCmd('tps'));
@@ -107,11 +121,14 @@ async function poll() {
         if (ms) state.stats.mspt = parseFloat(ms[1]);
         const tier = t.match(/Perf tier:\s*([A-Z]+)/i); state.stats.tier = tier ? tier[1] : null;
         const mem = t.match(/Memory[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*%/i); state.stats.memPct = mem ? parseFloat(mem[1]) : null;
+        alive = true;
       } catch (e) {}
       if (state.stats.mspt == null) { try { const mm = strip(await rconCmd('mspt')); const m = mm.match(/([0-9]+(?:\.[0-9]+)?)\s*ms/i); state.stats.mspt = m ? parseFloat(m[1]) : null; } catch (e) {} }
       try { const l = strip(await rconCmd('list')); const mm = l.match(/There are\s+(\d+)/i) || l.match(/(\d+)\s+of/i); state.stats.players = mm ? +mm[1] : null; } catch (e) {}
       state.stats.rssMb = readRss();
       state.stats.ts = Date.now();
+      // Reflect an externally-running server in the header (we don't own its process handle).
+      if (!serverProc) { state.server.running = alive; if (!alive) { state.server.pid = null; state.stats.tps = state.stats.mspt = state.stats.players = null; } }
     }
   } finally { rconBusy = false; }
   broadcast();
