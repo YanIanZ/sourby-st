@@ -45,6 +45,7 @@
     <div class="card"><div class="k">Players</div><div class="v" id="players">—</div><div class="s" id="playersS">on server</div></div>
     <div class="card"><div class="k">Bots</div><div class="v" id="bots">—</div><div class="s" id="botsS">connected / target</div></div>
     <div class="card"><div class="k">Server RSS</div><div class="v" id="rss">—</div><div class="s" id="rssS">MB</div></div>
+    <div class="card"><div class="k">Perf tier</div><div class="v" id="tier">—</div><div class="s" id="tierS">self-tune</div></div>
     <div class="card"><div class="k">Server</div><div class="v" id="srv">—</div><div class="s" id="srvS">state</div></div>
   </div>
   <canvas id="graph" width="1080" height="120"></canvas>
@@ -73,6 +74,10 @@ function apply(m){
   $('botsS').textContent = (bt.connected||0)+' / '+(bt.target||0)+(bt.kicked?('  ('+bt.kicked+' kicked)'):'');
   $('rss').textContent = st.rssMb==null?'—':st.rssMb;
   $('rssS').textContent = 'MB'+(st.heapGb?(' / '+st.heapGb+'G heap'):'');
+  const TC={GREEN:'var(--grn)',YELLOW:'var(--yel)',ORANGE:'#e8873a',RED:'var(--red)',EMERGENCY:'var(--red)'};
+  $('tier').textContent = st.tier||'—';
+  $('tier').style.color = TC[st.tier]||'var(--dim)';
+  $('tierS').textContent = st.memPct!=null?('mem '+st.memPct+'%'):'self-tune';
   $('srv').textContent = sv.running?'UP':'down';
   $('srv').style.color = sv.running?'var(--grn)':'var(--dim)';
   $('srvS').textContent = sv.pid?('pid '+sv.pid):'stopped';

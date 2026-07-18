@@ -22,9 +22,11 @@ const TOKEN = CFG.web.token || '';
 const state = {
   server: { running: false, pid: null, startedAt: null },
   bots: { running: false, pid: null, connected: 0, spawned: 0, kicked: 0, target: 0 },
-  stats: { tps: null, mspt: null, players: null, rssMb: null, heapGb: CFG.server.heapGb || null, ts: 0 },
+  stats: { tps: null, mspt: null, players: null, rssMb: null, tier: null, memPct: null, heapGb: CFG.server.heapGb || null, ts: 0 },
   log: [],
 };
+// Minecraft uses § colour codes (incl. §x§f§f… hex runs), not ANSI — strip both before parsing.
+const strip = s => String(s).replace(/§./g, '').replace(/\x1b\[[0-9;]*m/g, '');
 function pushLog(line) { state.log.push({ t: Date.now(), line }); if (state.log.length > 200) state.log.shift(); }
 
 // ---- child processes ----
@@ -96,9 +98,18 @@ async function poll() {
   if (rconBusy) return; rconBusy = true;
   try {
     if (serverProc) {
-      try { const t = await rconCmd('tps'); state.stats.tps = firstNum((t.match(/TPS[:\s]+([0-9.]+)/i) || [])[1] || t); } catch (e) {}
-      try { const m = await rconCmd('mspt'); state.stats.mspt = firstNum(m); } catch (e) {}
-      try { const l = await rconCmd('list'); const mm = l.match(/(\d+)\s+of/); state.stats.players = mm ? +mm[1] : firstNum(l); } catch (e) {}
+      // SourbyCraft /tps carries TPS + MSPT + perf-tier + memory in one formatted block.
+      try {
+        const t = strip(await rconCmd('tps'));
+        let m = t.match(/now[^0-9]*([0-9]+(?:\.[0-9]+)?)/i) || t.match(/TPS[^0-9]*([0-9]+(?:\.[0-9]+)?)/i);
+        state.stats.tps = m ? parseFloat(m[1]) : null;
+        const ms = t.match(/MSPT[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ms/i);
+        if (ms) state.stats.mspt = parseFloat(ms[1]);
+        const tier = t.match(/Perf tier:\s*([A-Z]+)/i); state.stats.tier = tier ? tier[1] : null;
+        const mem = t.match(/Memory[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*%/i); state.stats.memPct = mem ? parseFloat(mem[1]) : null;
+      } catch (e) {}
+      if (state.stats.mspt == null) { try { const mm = strip(await rconCmd('mspt')); const m = mm.match(/([0-9]+(?:\.[0-9]+)?)\s*ms/i); state.stats.mspt = m ? parseFloat(m[1]) : null; } catch (e) {} }
+      try { const l = strip(await rconCmd('list')); const mm = l.match(/There are\s+(\d+)/i) || l.match(/(\d+)\s+of/i); state.stats.players = mm ? +mm[1] : null; } catch (e) {}
       state.stats.rssMb = readRss();
       state.stats.ts = Date.now();
     }
