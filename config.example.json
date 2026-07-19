@@ -16,13 +16,13 @@
     "gamemode": "spectator"
   },
   "bots": {
-    "count": 1000,
-    "stagger": 120,
-    "moveInterval": 500,
-    "step": 8,
+    "count": 150,
+    "stagger": 250,
+    "moveInterval": 700,
+    "step": 4,
     "prefix": "ST_",
     "shards": 0,
-    "fly": true,
+    "fly": false,
     "cruiseY": 120,
     "spread": 1200
   },

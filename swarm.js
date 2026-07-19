@@ -29,8 +29,8 @@ const VERSION = arg('version', CFG.server.version || '1.21.4'); // client versio
 // minecraft-data (1.21.5+) has a broken lpVec3 type that desyncs the play stream and drops bots.
 // Via on the server bridges 1.21.4 up to any newer server protocol.
 const STAGGER = parseInt(arg('stagger', CFG.bots.stagger || '80'), 10);        // ms between each bot connect (raise if server throttles)
-const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '500'), 10); // ms between movement packets (lower = faster)
-const STEP = parseFloat(arg('step', CFG.bots.step || '8'));                    // blocks moved per movement packet (higher = faster)
+const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '700'), 10); // ms between movement packets (classic default; lower = faster)
+const STEP = parseFloat(arg('step', CFG.bots.step || '4'));                    // blocks moved per movement packet (classic default; higher = faster)
 const FLY = process.argv.includes('--fly') || String(arg('fly', CFG.bots.fly ?? '')).toLowerCase() === 'true'; // cruise airborne (needs allow-flight); covers ground faster
 const CRUISE_Y = parseFloat(arg('cruise-y', CFG.bots.cruiseY || '120'));       // fly altitude
 const SPREAD = parseInt(arg('spread', CFG.bots.spread || '0'), 10);            // blocks between bots' home
