@@ -33,6 +33,10 @@ const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '500'), 1
 const STEP = parseFloat(arg('step', CFG.bots.step || '8'));                    // blocks moved per movement packet (higher = faster)
 const FLY = process.argv.includes('--fly') || String(arg('fly', CFG.bots.fly ?? '')).toLowerCase() === 'true'; // cruise airborne (needs allow-flight); covers ground faster
 const CRUISE_Y = parseFloat(arg('cruise-y', CFG.bots.cruiseY || '120'));       // fly altitude
+const SPREAD = parseInt(arg('spread', CFG.bots.spread || '0'), 10);            // blocks between bots' home
+// positions (0 = all at spawn). CRITICAL for a real Folia test: Folia ticks per-REGION on separate
+// threads, so 150+ players only scale when spread across the map (different regions). Clustered at
+// spawn they share one region = one thread = collapse (Folia's worst case, not a server fault).
 const PREFIX = arg('prefix', CFG.bots.prefix || 'ST_');                        // username prefix
 const DURATION = parseInt(arg('duration', '0'), 10);       // seconds; 0 = run until Ctrl-C
 const USERNAME_LIST = arg('usernames', '');                // optional comma list to use instead of PREFIX+i
@@ -52,6 +56,8 @@ Options:
   --step <blocks>        blocks moved per packet   (default 8; higher = faster)
   --fly                  cruise airborne, faster   (server needs allow-flight=true)
   --cruise-y <n>         fly altitude              (default 120)
+  --spread <blocks>      space bots this far apart (0=all at spawn; use >1000 for a real Folia
+                         test so bots land in separate regions = separate threads)
   --prefix <str>         username prefix           (default ST_)
   --usernames a,b,c      explicit username list    (overrides prefix/count)
   --duration <sec>       auto-stop after N seconds (default 0 = until Ctrl-C)
@@ -86,11 +92,24 @@ function spawnBot(i) {
   let x = 0, y = 70, z = 0, ready = false;
   const angle = (i % 360) * (Math.PI / 180);         // unique outward heading -> spreads chunk generation
   const dx = Math.cos(angle) * STEP, dz = Math.sin(angle) * STEP;
+  // Home position: when SPREAD>0, place each bot on a grid SPREAD blocks apart (centred on spawn) so
+  // every bot lands in its own Folia region -> ticked on a separate thread -> real parallelism.
+  const cols = SPREAD > 0 ? Math.max(1, Math.ceil(Math.sqrt(names.length))) : 1;
+  const homeX = SPREAD > 0 ? ((i % cols) - cols / 2) * SPREAD : null;
+  const homeZ = SPREAD > 0 ? (Math.floor(i / cols) - cols / 2) * SPREAD : null;
 
   client.on('login', () => { connected++; });
   client.on('position', (p) => {                      // server sets/corrects our position
-    x = p.x; y = p.y; z = p.z; ready = true;
     try { client.write('teleport_confirm', { teleportId: p.teleportId }); } catch (e) {}
+    if (homeX !== null) {
+      // SPREAD: jump to the assigned home region ONCE (spectator bypasses the move-speed check), then
+      // drive our own coords — ignore later server position packets so a mid-join spawn packet can't
+      // yank us back to spawn before we've reached our region.
+      if (!client._counted) { x = homeX; z = homeZ; y = FLY ? CRUISE_Y : p.y; }
+    } else {
+      x = p.x; y = p.y; z = p.z;                       // non-spread: adopt the server's position
+    }
+    ready = true;
     if (!client._counted) { client._counted = true; spawned++; }
   });
   client.on('kick_disconnect', () => { kicked++; });
