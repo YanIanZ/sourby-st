@@ -33,6 +33,10 @@ const MOVE_MS = parseInt(arg('move-interval', CFG.bots.moveInterval || '700'), 1
 const STEP = parseFloat(arg('step', CFG.bots.step || '4'));                    // blocks moved per movement packet (classic default; higher = faster)
 const FLY = process.argv.includes('--fly') || String(arg('fly', CFG.bots.fly ?? '')).toLowerCase() === 'true'; // cruise airborne (needs allow-flight); covers ground faster
 const CRUISE_Y = parseFloat(arg('cruise-y', CFG.bots.cruiseY || '120'));       // fly altitude
+const WANDER = process.argv.includes('--wander') || String(arg('wander', CFG.bots.wander ?? '')).toLowerCase() === 'true';
+// Irregular fly-away path (simulate a real exploring player): random initial heading + periodic
+// course/altitude changes, instead of a straight fixed-angle line. Each bot wanders off in its own
+// unpredictable direction, so chunk generation spreads naturally like real players scattering.
 const SPREAD = parseInt(arg('spread', CFG.bots.spread || '0'), 10);            // blocks between bots' home
 // positions (0 = all at spawn). CRITICAL for a real Folia test: Folia ticks per-REGION on separate
 // threads, so 150+ players only scale when spread across the map (different regions). Clustered at
@@ -90,8 +94,9 @@ function spawnBot(i) {
   } catch (e) { errored++; return; }
 
   let x = 0, y = 70, z = 0, ready = false;
-  const angle = (i % 360) * (Math.PI / 180);         // unique outward heading -> spreads chunk generation
-  const dx = Math.cos(angle) * STEP, dz = Math.sin(angle) * STEP;
+  // WANDER: random initial heading (irregular). Otherwise: unique per-index outward angle (orderly spread).
+  let angle = WANDER ? Math.random() * Math.PI * 2 : (i % 360) * (Math.PI / 180);
+  let dx = Math.cos(angle) * STEP, dz = Math.sin(angle) * STEP;
   // Home position: when SPREAD>0, place each bot on a grid SPREAD blocks apart (centred on spawn) so
   // every bot lands in its own Folia region -> ticked on a separate thread -> real parallelism.
   const cols = SPREAD > 0 ? Math.max(1, Math.ceil(Math.sqrt(names.length))) : 1;
@@ -99,18 +104,36 @@ function spawnBot(i) {
   const homeZ = SPREAD > 0 ? (Math.floor(i / cols) - cols / 2) * SPREAD : null;
 
   client.on('login', () => { connected++; });
-  client.on('position', (p) => {                      // server sets/corrects our position
+  // CRITICAL for movement: after each chunk batch the server waits for our ack before sending more.
+  // Without it the server stops streaming chunks and won't let the player advance past the initially-
+  // loaded area (the bot moves a few blocks then freezes). Ack with a high chunks/tick so it keeps up.
+  client.on('chunk_batch_finished', () => {
+    try { client.write('chunk_batch_received', { chunksPerTick: 40.0 }); } catch (e) {}
+  });
+  client.on('position', (p) => {
+    // ALWAYS adopt the server's authoritative position. This is the critical fix: if the client keeps
+    // an absolute position that runs away from the server's (e.g. it rejected a move), every later
+    // packet reports a huge delta -> "moved too quickly" -> permanent rejection. Adopting the
+    // corrected position on each server packet keeps every subsequent move a small, legal delta.
+    x = p.x; y = p.y; z = p.z; ready = true;
     try { client.write('teleport_confirm', { teleportId: p.teleportId }); } catch (e) {}
-    if (homeX !== null) {
-      // SPREAD: jump to the assigned home region ONCE (spectator bypasses the move-speed check), then
-      // drive our own coords — ignore later server position packets so a mid-join spawn packet can't
-      // yank us back to spawn before we've reached our region.
-      if (!client._counted) { x = homeX; z = homeZ; y = FLY ? CRUISE_Y : p.y; }
-    } else {
-      x = p.x; y = p.y; z = p.z;                       // non-spread: adopt the server's position
+    // Signal "world loaded" (1.21.2+) so the server starts ticking/streaming for us.
+    if (!client._loaded) { client._loaded = true; try { client.write('player_loaded', {}); } catch (e) {} }
+    if (!client._counted) {
+      client._counted = true; spawned++;
+      // Survival fly needs a server GRANT (may-fly). allow-flight alone doesn't grant it; a fly plugin
+      // (CMI /fly, gated by the cmi.command.fly permission) does. Ask for it. When the server then
+      // sends the clientbound abilities with the may-fly bit, we enable flying (below) and start moving.
+      if (FLY) { try { client.chat('/cmi fly'); } catch (e) {} }
     }
-    ready = true;
-    if (!client._counted) { client._counted = true; spawned++; }
+  });
+  // Clientbound abilities: once the server grants may-fly (bit 0x04), tell it we ARE flying (serverbound
+  // flags 0x02) and unlock movement. Until then we stay put so the server never sees an illegal airborne move.
+  client.on('abilities', (p) => {
+    if (FLY && (p.flags & 0x04) && !client._flyReady) {
+      client._flyReady = true;
+      try { client.write('abilities', { flags: 0x02 }); } catch (e) {}
+    }
   });
   client.on('kick_disconnect', () => { kicked++; });
   client.on('error', () => { errored++; });
@@ -118,8 +141,24 @@ function spawnBot(i) {
 
   client._iv = setInterval(() => {
     if (!ready) return;
-    x += dx; z += dz;                                 // walk/fly outward -> forces new-chunk generation
-    if (FLY && y < CRUISE_Y) y += 3;                  // climb to cruise altitude, then hold it
+    if (FLY && !client._flyReady) return;             // wait until the server granted + we enabled fly
+    if (FLY && y < CRUISE_Y - 1) {
+      // ASCEND phase: climb straight up (no horizontal) until above terrain, so horizontal flight
+      // never moves into a hill -> avoids "moved wrongly". Climb rate stays under the fly-speed check.
+      y += 4;
+      try { client.write('position', { x, y, z, flags: { onGround: false, hasHorizontalCollision: false } }); } catch (e) {}
+      return;
+    }
+    // CRUISE phase: wander horizontally at altitude (open air, no collision).
+    if (WANDER && Math.random() < 0.25) {             // ~1-in-4 ticks: change course -> irregular path
+      angle += (Math.random() - 0.5) * 1.4;           // turn up to ~40deg either way
+      dx = Math.cos(angle) * STEP; dz = Math.sin(angle) * STEP;
+    }
+    x += dx; z += dz;                                 // fly outward -> forces new-chunk generation
+    if (FLY && WANDER) {
+      y += (Math.random() - 0.5) * 1.5;               // gentle irregular altitude drift
+      y = Math.max(CRUISE_Y - 8, Math.min(CRUISE_Y + 8, y)); // stay in a high band, well above terrain
+    }
     // 1.21.2+ movement: MovementFlags bitfield (onGround / hasHorizontalCollision), not an onGround bool
     try { client.write('position', { x, y, z, flags: { onGround: FLY ? false : true, hasHorizontalCollision: false } }); } catch (e) {}
   }, MOVE_MS);
