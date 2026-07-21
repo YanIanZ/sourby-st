@@ -47,6 +47,11 @@ const SPREAD = parseInt(arg('spread', CFG.bots.spread || '0'), 10);            /
 const PREFIX = arg('prefix', CFG.bots.prefix || 'ST_');                        // username prefix
 const DURATION = parseInt(arg('duration', '0'), 10);       // seconds; 0 = run until Ctrl-C
 const USERNAME_LIST = arg('usernames', '');                // optional comma list to use instead of PREFIX+i
+const RECONNECT = !process.argv.includes('--no-reconnect'); // sustained-test self-heal: respawn a bot
+// whenever its connection ends. This makes the swarm population RECOVER on its own — connect-burst
+// timeouts and slow long-run drops keep retrying (with backoff+jitter) until they seat, so an
+// unattended multi-hour run holds a stable population instead of decaying. Disable with --no-reconnect.
+const RECONNECT_MS = parseInt(arg('reconnect-ms', CFG.bots.reconnectMs || '8000'), 10);
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log(`sourby-st — load-test bot swarm
@@ -84,6 +89,7 @@ catch (e) { console.error('Missing dependency. Run "npm install" first.'); proce
 
 // ---- state ----
 let connected = 0, spawned = 0, kicked = 0, errored = 0, ended = 0;
+let shuttingDown = false;      // set on SIGINT/SIGTERM so reconnect stops and the process can exit
 const bots = [];
 const names = USERNAME_LIST
   ? USERNAME_LIST.split(',').map(s => s.trim()).filter(Boolean)
@@ -139,7 +145,14 @@ function spawnBot(i) {
   });
   client.on('kick_disconnect', () => { kicked++; });
   client.on('error', () => { errored++; });
-  client.on('end', () => { ended++; if (client._iv) clearInterval(client._iv); });
+  client.on('end', () => {
+    ended++;
+    if (client._iv) clearInterval(client._iv);
+    // Self-heal: respawn this slot after a backoff (+jitter so a mass-drop doesn't reconnect in lockstep).
+    if (RECONNECT && !shuttingDown) {
+      setTimeout(() => { if (!shuttingDown) spawnBot(i); }, RECONNECT_MS + Math.floor(Math.random() * 4000));
+    }
+  });
 
   client._iv = setInterval(() => {
     if (!ready) return;
@@ -165,7 +178,7 @@ function spawnBot(i) {
     try { client.write('position', { x, y, z, flags: { onGround: FLY ? false : true, hasHorizontalCollision: false } }); } catch (e) {}
   }, MOVE_MS);
 
-  bots.push(client);
+  bots[i] = client;   // index by slot so a reconnect replaces the dead client instead of leaking it
 }
 
 console.log(`sourby-st: connecting ${names.length} bots to ${HOST}:${PORT} (v${VERSION}, ${STAGGER}ms stagger) ...`);
@@ -176,6 +189,7 @@ const statsIv = setInterval(() => {
 }, 5000);
 
 function shutdown() {
+  shuttingDown = true;   // stop all reconnect timers from respawning after we start tearing down
   clearInterval(statsIv);
   bots.forEach(b => { try { b.end(); } catch (e) {} });
   console.log('sourby-st: stopped.');
