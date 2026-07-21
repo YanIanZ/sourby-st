@@ -37,6 +37,9 @@ const WANDER = process.argv.includes('--wander') || String(arg('wander', CFG.bot
 // Irregular fly-away path (simulate a real exploring player): random initial heading + periodic
 // course/altitude changes, instead of a straight fixed-angle line. Each bot wanders off in its own
 // unpredictable direction, so chunk generation spreads naturally like real players scattering.
+const SPECTATOR = process.argv.includes('--spectator') || String(arg('spectator', CFG.bots.spectator ?? '')).toLowerCase() === 'true';
+// Spectator bots (server default gamemode spectator): fly freely, no collision, no fly-grant needed.
+// Skip the survival fly handshake and move immediately, gently, so nothing trips "moved too quickly".
 const SPREAD = parseInt(arg('spread', CFG.bots.spread || '0'), 10);            // blocks between bots' home
 // positions (0 = all at spawn). CRITICAL for a real Folia test: Folia ticks per-REGION on separate
 // threads, so 150+ players only scale when spread across the map (different regions). Clustered at
@@ -121,10 +124,9 @@ function spawnBot(i) {
     if (!client._loaded) { client._loaded = true; try { client.write('player_loaded', {}); } catch (e) {} }
     if (!client._counted) {
       client._counted = true; spawned++;
-      // Survival fly needs a server GRANT (may-fly). allow-flight alone doesn't grant it; a fly plugin
-      // (CMI /fly, gated by the cmi.command.fly permission) does. Ask for it. When the server then
-      // sends the clientbound abilities with the may-fly bit, we enable flying (below) and start moving.
-      if (FLY) { try { client.chat('/cmi fly'); } catch (e) {} }
+      // Spectator: no grant needed, fly freely immediately. Survival fly: request the grant (/cmi fly).
+      if (SPECTATOR) { client._flyReady = true; }
+      else if (FLY) { try { client.chat('/cmi fly'); } catch (e) {} }
     }
   });
   // Clientbound abilities: once the server grants may-fly (bit 0x04), tell it we ARE flying (serverbound
@@ -143,9 +145,9 @@ function spawnBot(i) {
     if (!ready) return;
     if (FLY && !client._flyReady) return;             // wait until the server granted + we enabled fly
     if (FLY && y < CRUISE_Y - 1) {
-      // ASCEND phase: climb straight up (no horizontal) until above terrain, so horizontal flight
-      // never moves into a hill -> avoids "moved wrongly". Climb rate stays under the fly-speed check.
-      y += 4;
+      // ASCEND phase: climb GENTLY (small per-packet delta) so the server never flags "moved too
+      // quickly" on a big vertical jump — that single mistake blocks all further movement.
+      y += 1.5;
       try { client.write('position', { x, y, z, flags: { onGround: false, hasHorizontalCollision: false } }); } catch (e) {}
       return;
     }
